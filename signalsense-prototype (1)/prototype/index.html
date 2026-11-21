@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SignalSense Edge Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,700;0,9..144,800;1,9..144,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: the deck's paper-and-ink look. Left: what the camera sees and what the model finds.
+   Right: what the controller decides and the commands it sends. Pipeline strip on top ties them together. */
+:root{
+  color-scheme: light;
+  --paper:#F1ECE2; --card:#FBF7EF; --ink:#1B2535; --navy:#22384F;
+  --coral:#E4533B; --sun:#F2C84B; --steel:#1F5F8B; --muted:#6C665B; --rule:#CFC7B8; --good:#1E8A57;
+  --aN:#4EA3E6; --aE:#A884F0; --aS:#F2C84B; --aW:#FF8656;
+  --display:"Fraunces", "Iowan Old Style", Georgia, serif;
+  --body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+button,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--steel);outline-offset:2px}
+.wrap{max-width:1480px;margin:0 auto;padding:0 20px 36px}
+
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1.5px solid var(--ink);flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-weight:600;letter-spacing:.09em;font-size:13px}
+.brand .dots{display:inline-flex;gap:3px;border:1.5px solid var(--ink);border-radius:5px;padding:3px 4px;background:var(--card)}
+.brand .dots i{width:5px;height:5px;border-radius:50%;background:var(--rule)}
+.brand .dots i:last-child{background:var(--coral)}
+.brand em{font-style:normal;color:var(--coral)}
+.top .mid{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--muted)}
+.status{font-family:var(--mono);font-size:11.5px;display:flex;gap:8px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--sun);display:inline-block;border:1px solid var(--ink)}
+.dot.ok{background:#3DCB79}.dot.err{background:var(--coral)}
+
+.intro{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;padding:16px 0 12px;flex-wrap:wrap}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(28px,3.3vw,42px);line-height:1;letter-spacing:-.02em;margin:0;text-wrap:balance}
+h1 i{font-style:italic;box-shadow:inset 0 -.14em 0 var(--coral)}
+.intro p{margin:0;max-width:60ch;color:var(--muted);font-size:14.5px}
+
+/* pipeline */
+.pipe{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border:1.5px solid var(--ink);background:var(--card);box-shadow:4px 4px 0 var(--sun)}
+.pipe > div{padding:9px 12px 10px;border-right:1.5px solid var(--ink);position:relative;min-width:0}
+.pipe > div:last-child{border-right:0}
+.pipe > div:nth-child(even){background:#F6E7B4}
+.pipe .n{font-family:var(--mono);font-size:10.5px;color:var(--coral);letter-spacing:.08em}
+.pipe b{display:block;font-family:var(--display);font-size:17px;font-weight:700;line-height:1.15;margin:1px 0 3px}
+.pipe span.v{font-family:var(--mono);font-size:11.5px;font-variant-numeric:tabular-nums;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:900px){.pipe{grid-template-columns:repeat(2,minmax(0,1fr))}.pipe>div{border-bottom:1.5px solid var(--ink)}}
+
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:18px;align-items:start;margin-top:16px}
+@media (max-width:1120px){.grid{grid-template-columns:1fr}}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+
+.panel{background:var(--card);border:1.5px solid var(--ink);box-shadow:4px 4px 0 var(--ink);min-width:0}
+.panel > header{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 11px;border-bottom:1.5px solid var(--ink);font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;flex-wrap:wrap}
+.panel > header .r{display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0}
+
+.camwrap{position:relative;background:#101315}
+#view{display:block;width:100%;aspect-ratio:16/9;cursor:default}
+#view.drawing{cursor:crosshair}
+.camtabs{display:flex;gap:0;border:1.5px solid var(--ink)}
+.camtabs button{border:0;border-right:1.5px solid var(--ink);background:transparent;padding:3px 9px;font-family:var(--mono);font-size:11px}
+.camtabs button:last-child{border-right:0}
+.camtabs button.on{background:var(--sun)}
+.drawbar{position:absolute;left:10px;bottom:10px;right:10px;display:none;align-items:center;justify-content:space-between;gap:10px;background:rgba(15,18,20,.86);color:#F2EDE2;padding:8px 10px;font-size:13px}
+.drawbar.on{display:flex}
+
+.btn{border:1.5px solid var(--ink);background:var(--card);padding:5px 10px;font-weight:500;font-size:13px;box-shadow:2px 2px 0 var(--ink);white-space:nowrap}
+.btn:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink)}
+.btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink)}
+.btn.sm{padding:3px 8px;font-size:12px}
+.btn.coral{background:var(--coral);color:#fff}
+.btn.sun{background:var(--sun)}
+.btn[disabled]{opacity:.45;cursor:not-allowed;transform:none;box-shadow:2px 2px 0 var(--ink)}
+
+/* approaches */
+.feeds{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0}
+@media (max-width:760px){.feeds{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.feed{padding:9px 11px 11px;border-right:1px solid var(--rule);min-width:0}
+.feed:last-child{border-right:0}
+.feed .hd{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.feed .nm{font-weight:600;display:flex;align-items:center;gap:7px}
+.sw{width:11px;height:11px;border:2px solid var(--c);background:color-mix(in srgb,var(--c) 30%,transparent);display:inline-block}
+.feed .pcu{font-family:var(--display);font-weight:800;font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums;margin-top:4px}
+.feed .pcu small{font-family:var(--mono);font-weight:400;font-size:11px;color:var(--muted);margin-left:3px}
+.feed .cnt{font-family:var(--mono);font-size:11px;color:var(--muted);min-height:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.feed select{width:100%;margin-top:7px;border:1.5px solid var(--ink);background:var(--card);padding:3px 4px;font-size:12px}
+.feed .row{display:flex;gap:6px;margin-top:6px}
+.feed .row .btn{flex:1}
+
+/* chart */
+#chart{display:block;width:100%;height:170px}
+.chartbox{padding:8px 10px 6px}
+.keys{display:flex;gap:14px;font-family:var(--mono);font-size:11px;padding:0 10px 9px;flex-wrap:wrap}
+.keys span{display:inline-flex;align-items:center;gap:5px}
+.keys i{width:14px;height:3px;background:var(--c);display:inline-block}
+
+/* controller */
+.ctl{display:grid;grid-template-columns:170px 1fr;gap:12px;padding:11px}
+#junction{display:block;width:170px;height:170px;background:#1A1F22}
+.mode{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pill{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;padding:3px 8px;border:1.5px solid var(--ink)}
+.pill.ADAPTIVE{background:#D9EBDD}.pill.PREEMPT{background:var(--coral);color:#fff}.pill.STARTING{background:var(--sun)}
+.big{font-family:var(--display);font-weight:800;font-size:40px;line-height:1;font-variant-numeric:tabular-nums;margin:8px 0 2px}
+.big small{font-family:var(--mono);font-weight:400;font-size:12px;color:var(--muted);margin-left:6px}
+.why{font-size:13px;color:var(--ink);margin-top:6px}
+.why b{font-family:var(--mono);font-weight:500;font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{font-family:var(--mono);font-weight:500;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:right;padding:6px 8px;border-top:1.5px solid var(--ink);border-bottom:1px solid var(--rule)}
+th:first-child,td:first-child{text-align:left}
+td{padding:6px 8px;border-bottom:1px solid var(--rule);text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:12px}
+td:first-child{font-family:var(--body);font-size:13px;font-weight:600}
+tr.on td{background:#E3F1E6}
+tr.pre td{background:#FBE0DA}
+.formula{padding:8px 11px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule)}
+.formula b{color:var(--ink);font-family:var(--mono);font-weight:500}
+.cmp{display:grid;grid-template-columns:1fr 1fr;border-top:1.5px solid var(--ink)}
+.cmp div{padding:8px 11px}
+.cmp div+div{border-left:1px solid var(--rule)}
+.cmp small{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.cmp strong{font-family:var(--display);font-weight:800;font-size:22px;font-variant-numeric:tabular-nums}
+.cmp .s strong{color:var(--steel)}
+
+.prio{padding:10px 11px;display:flex;flex-direction:column;gap:8px}
+.prio .line{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.prio .lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);width:66px}
+.seg{display:inline-flex;border:1.5px solid var(--ink)}
+.seg button{border:0;border-right:1.5px solid var(--ink);background:transparent;padding:4px 11px;font-family:var(--mono);font-size:12px}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--ink);color:var(--card)}
+.prio .note{font-size:12px;color:var(--muted)}
+.corr{font-family:var(--mono);font-size:12px;padding:7px 9px;background:var(--navy);color:#F6F1E6;min-height:32px}
+.corr b{color:var(--sun);font-weight:500}
+
+#bus{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:11px;line-height:1.45;height:230px;overflow:auto;background:#14191C;color:#D9D3C6}
+#bus li{padding:3px 10px;border-bottom:1px solid #222A2E;word-break:break-word}
+#bus time{color:#7E8A90;margin-right:6px}
+#bus .pub{color:#F2C84B}#bus .ack{color:#7BE0A0}#bus .pre{color:#FF8A75}#bus .info{color:#9FB7C8}
+.errbox{display:none;margin-top:12px;padding:10px 12px;border:1.5px solid var(--coral);background:#FBE3DD;font-size:13px}
+.errbox.on{display:block}
+
+.notes{margin-top:22px;border-top:1.5px solid var(--ink);padding-top:12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px;font-size:12.5px;color:var(--muted)}
+@media (max-width:860px){.notes{grid-template-columns:1fr}}
+.notes b{color:var(--ink);display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:500;margin-bottom:3px}
+.notes p{margin:0 0 6px}
+.notes a{color:var(--steel)}
+input[type=file]{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand"><span class="dots"><i></i><i></i><i></i></span><span>SIGNAL<em>SENSE</em></span></div>
+    <div class="mid">EDGE PROTOTYPE · JUNCTION JN-01</div>
+    <div class="status"><span class="dot" id="sdot"></span><span id="stext">Loading YOLOv8n model (24 MB)…</span></div>
+  </div>
+
+  <div class="intro">
+    <h1>A signal that <i>reads the road.</i></h1>
+    <p>This is the working core of SignalSense, running in your browser. A YOLOv8 model watches recorded footage from a real junction camera, counts the vehicles waiting on each approach, scores them in PCU and plans each green from that score. Load your own video or your own trained model and it runs on that instead.</p>
+  </div>
+
+  <div class="pipe" aria-label="Processing pipeline">
+    <div><span class="n">01</span><b>Capture</b><span class="v" id="p1">–</span></div>
+    <div><span class="n">02</span><b>Understand</b><span class="v" id="p2">–</span></div>
+    <div><span class="n">03</span><b>Decide</b><span class="v" id="p3">–</span></div>
+    <div><span class="n">04</span><b>Act</b><span class="v" id="p4">–</span></div>
+    <div><span class="n">05</span><b>Coordinate</b><span class="v" id="p5">–</span></div>
+  </div>
+  <div class="errbox" id="err"></div>
+
+  <div class="grid">
+    <div class="col">
+      <div class="panel">
+        <header><span id="camTitle">CAM-01 · Overview</span>
+          <div class="r"><div class="camtabs" id="vmode"><button data-m="model" class="on" title="Show the exact frame the model analysed, so boxes line up">Model view</button><button data-m="live" title="Smooth live video; boxes trail by one inference">Live</button></div><div class="camtabs" id="camtabs"></div>
+            <button class="btn sm" id="modelBtn" title="Load a YOLOv8 model you trained, exported to ONNX">Load my model (.onnx)</button></div>
+        </header>
+        <div class="camwrap">
+          <canvas id="view"></canvas>
+          <div class="drawbar" id="drawbar"><span id="drawText">Click the corners of the zone where vehicles queue for this approach.</span>
+            <span style="display:flex;gap:8px"><button class="btn sm" id="drawCancel">Cancel</button><button class="btn sm sun" id="drawDone">Save zone</button></span></div>
+        </div>
+        <div class="feeds" id="feeds"></div>
+      </div>
+
+      <div class="panel">
+        <header><span>Density per approach, measured</span><span class="r" style="font-family:var(--mono);font-size:11px">PCU · last 2 minutes</span></header>
+        <div class="chartbox"><canvas id="chart"></canvas></div>
+        <div class="keys" id="keys"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="panel">
+        <header><span>Signal controller</span><span class="r"><span class="pill STARTING" id="mode">STARTING</span></span></header>
+        <div class="ctl">
+          <canvas id="junction" width="170" height="170"></canvas>
+          <div>
+            <div class="mode"><span style="font-family:var(--mono);font-size:11px;color:var(--muted)" id="phaseLbl">waiting for first detections</span></div>
+            <div class="big" id="count">–</div>
+            <div class="why" id="why">The controller starts once the model has scored every approach.</div>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Approach</th><th>Vehicles</th><th>PCU</th><th>Next green</th><th>Red for</th></tr></thead>
+          <tbody id="plan"></tbody>
+        </table>
+        <div class="formula">Green time = <b>4 s</b> start-up + <b>2.0 s per PCU</b> waiting, kept between <b>7 s</b> and <b>45 s</b>. Green ends early when its zone empties for 3 s. No approach waits more than <b>90 s</b> while it has demand. Every change runs <b>3 s yellow + 2 s all-red</b>.</div>
+        <div class="cmp">
+          <div><small>Fixed plan</small><strong>140 s</strong> cycle<br><span style="font-size:12px;color:var(--muted)">30 s green each, whatever is waiting</span></div>
+          <div class="s"><small>SignalSense, last cycle</small><strong id="cyc">–</strong><br><span style="font-size:12px;color:var(--muted)" id="cycNote">measuring first cycle</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <header><span>Priority vehicles · V2X</span><span class="r" style="font-family:var(--mono);font-size:11px">tier 1 preempts · tier 2 nudges</span></header>
+        <div class="prio">
+          <div class="line"><span class="lbl">From</span><div class="seg" id="from"><button data-a="N">N</button><button data-a="E">E</button><button data-a="S">S</button><button data-a="W" class="on">W</button></div></div>
+          <div class="line"><span class="lbl">Send</span>
+            <button class="btn coral" id="ambBtn">Ambulance alert</button>
+            <button class="btn" id="fireBtn">Fire truck alert</button>
+            <button class="btn sun" id="busBtn">School bus</button></div>
+          <div class="corr" id="corr">No priority vehicle in range.</div>
+          <div class="note">These buttons stand in for the V2X or siren message an approaching vehicle sends. With a model trained on ambulance and fire-truck classes, the camera triggers the same preemption on its own.</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <header><span>Controller bus · MQTT</span><span class="r" style="font-family:var(--mono);font-size:11px">virtual controller, shadow mode</span></header>
+        <ul id="bus"></ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div><b>What is real here</b><p>The detections. Every box comes from YOLOv8n running on the video frames in your browser through ONNX Runtime WebAssembly, so the counts, the PCU score and the green times all follow what the model sees. Nothing is scripted.</p><p>PCU weights follow IRC 106-1990: two-wheeler 0.5, bicycle 0.4, car 1.0, auto-rickshaw 1.2, bus and truck 2.2.</p></div>
+    <div><b>What is not, yet</b><p>The signals are virtual. The footage is recorded, so its real traffic lights keep their own plan and cars don't react to our decisions. That is shadow mode, step 2 of our pilot plan. The stock model knows COCO classes only: auto-rickshaws and ambulances need our custom Indian model, which this page loads through "Load my model".</p></div>
+    <div><b>Credits</b><p>Footage: junction camera in Ingolstadt, Germany, from <a href="https://github.com/EFS-OpenSource/TrafficMonitoring">EFS TrafficMonitoring</a> (Apache-2.0). Model: <a href="https://github.com/ultralytics/ultralytics">Ultralytics YOLOv8n</a> (AGPL-3.0), exported to ONNX. Runtime: <a href="https://github.com/microsoft/onnxruntime">ONNX Runtime Web</a> (MIT).</p></div>
+  </div>
+</div>
+
+<input type="file" id="videoFile" accept="video/*">
+<input type="file" id="modelFile" accept=".onnx">
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const APPS = ['N','E','S','W'];
+const ANAME = {N:'North', E:'East', S:'South', W:'West'};
+const ACOL = {N:'#4EA3E6', E:'#A884F0', S:'#F2C84B', W:'#FF8656'};
+const SIGC = {G:'#3DDC84', Y:'#F2C84B', R:'#FF5A45'};
+
+/* ---------- tuning, matches the formula shown on the page ---------- */
+const STARTUP = 4, HEADWAY = 2.0, MIN_G = 7, MAX_G = 45, YEL = 3, ALLR = 2;
+const NO_CAM_G = 15, STARVE = 90, GAP_S = 3, GAP_PCU = 0.4, PRE_MIN = 5, SCHOOL_EXT = 8, V2X_HOLD = 18;
+const CONF = 0.30, IOU = 0.5;
+
+const COCO = ['person','bicycle','car','motorcycle','airplane','bus','train','truck','boat','traffic light','fire hydrant','stop sign','parking meter','bench','bird','cat','dog','horse','sheep','cow','elephant','bear','zebra','giraffe','backpack','umbrella','handbag','tie','suitcase','frisbee','skis','snowboard','sports ball','kite','baseball bat','baseball glove','skateboard','surfboard','tennis racket','bottle','wine glass','cup','fork','knife','spoon','bowl','banana','apple','sandwich','orange','broccoli','carrot','hot dog','pizza','donut','cake','chair','couch','potted plant','bed','dining table','toilet','tv','laptop','mouse','remote','keyboard','cell phone','microwave','oven','toaster','sink','refrigerator','book','clock','vase','scissors','teddy bear','hair drier','toothbrush'];
+let names = COCO, modelName = 'YOLOv8n · COCO';
+
+/* class name -> traffic category. Order matters: "motorcycle" before "cycle", "fire truck" before "truck". */
+function category(n){
+  n = String(n).toLowerCase();
+  if (/ambulance|fire.?(truck|engine|brigade)|firetruck|police|emergency/.test(n)) return 'emg';
+  if (/school/.test(n)) return 'school';
+  if (/auto|rickshaw|three.?wheel|tuk/.test(n)) return 'auto';
+  if (/motor|scooter|two.?wheel|2w|moped/.test(n)) return '2w';
+  if (/bicycle|cycle/.test(n)) return 'cycle';
+  if (/bus/.test(n)) return 'bus';
+  if (/truck|lorry|lcv|tempo|tractor/.test(n)) return 'truck';
+  if (/car|van|jeep|taxi|suv|sedan/.test(n)) return 'car';
+  return null;
+}
+const PCU = {'2w':0.5, cycle:0.4, car:1.0, auto:1.2, bus:2.2, truck:2.2, school:2.2, emg:1.4};
+const CATLBL = {'2w':'2W', cycle:'cycle', car:'car', auto:'auto', bus:'bus', truck:'truck', school:'school bus', emg:'emergency'};
+let catOf = names.map(category);
+
+/* ---------- sources (cameras) ---------- */
+const sources = [];
+let viewSrc = 0, uiReady = false;
+function addSource(name, el, kind){
+  const s = {id: sources.length, name, el, kind, boxes: [], ms: 0, W: 0, H: 0, lastT: 0, frames: 0};
+  sources.push(s); if (uiReady){ renderTabs(); renderFeeds(); } return s;
+}
+function makeVideo(src){
+  const v = document.createElement('video');
+  v.muted = true; v.loop = true; v.playsInline = true; v.autoplay = true; v.crossOrigin = 'anonymous';
+  if (src) v.src = src;
+  v.addEventListener('canplay', () => { v.play().catch(() => {}); }, {once:true});
+  return v;
+}
+const cam1 = addSource('CAM-01 · Overview', makeVideo('junction.mp4'), 'file');
+
+/* ---------- approaches: which camera, which zone (normalised polygon) ---------- */
+const A = {
+  N:{src:0, poly:[[0.395,0.0],[0.545,0.0],[0.537,0.115],[0.405,0.115]]},
+  E:{src:null, poly:null},
+  S:{src:0, poly:[[0.37,1.0],[0.585,1.0],[0.56,0.815],[0.415,0.815]]},
+  W:{src:0, poly:[[0.0,0.205],[0.215,0.25],[0.195,0.375],[0.0,0.335]]}
+};
+for (const k of APPS) Object.assign(A[k], {counts:{}, n:0, pcu:0, pcuS:0, seen:false, emg:0, emgT:0, school:false, hist:[]});
+
+function inPoly(x, y, p){
+  let c = false;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++){
+    const [xi, yi] = p[i], [xj, yj] = p[j];
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) c = !c;
+  }
+  return c;
+}
+
+/* ---------- detection worker ---------- */
+const pendingFrames = new Map(); let viewMode = 'model';
+let worker = null, modelReady = false, busy = false, rr = 0, reqId = 0, inferMs = 0, ips = 0, ipsCount = 0, ipsT = performance.now();
+function status(text, kind){ $('stext').textContent = text; $('sdot').className = 'dot' + (kind ? ' ' + kind : ''); }
+function showErr(html){ const e = $('err'); e.innerHTML = html; e.classList.add('on'); }
+function startWorker(buffer, imgsz){
+  modelReady = false; busy = false;
+  if (!worker){
+    try { worker = new Worker('detector.js', {type:'module'}); }
+    catch (e){ status('Model runtime could not start', 'err'); showErr('This browser blocked the model worker (' + e.message + '). Open the page from its GitHub Pages address in Chrome, Edge or Firefox.'); return; }
+    worker.onmessage = onWorker;
+    worker.onerror = ev => { status('Model runtime failed', 'err'); showErr('The model runtime failed to load: ' + (ev.message || 'unknown error') + '. If you opened the file straight from your disk, serve the folder instead (for example <code>python -m http.server</code>) or use the GitHub Pages link.'); };
+  }
+  const t = performance.now();
+  status(buffer ? 'Loading your model…' : 'Loading YOLOv8n model (24 MB)…');
+  worker.postMessage(buffer ? {type:'load', buffer, imgsz} : {type:'load', url:'model/yolov8n.onnx', base:location.href, imgsz:640}, buffer ? [buffer] : []);
+}
+function onWorker(e){
+  const m = e.data;
+  if (m.type === 'ready'){
+    modelReady = true;
+    status(`${modelName} · ${m.imgsz}px · ready`, 'ok');
+    bus('info', `model loaded in ${(m.loadMs/1000).toFixed(1)} s, first inference ${Math.round(m.warmMs)} ms, output ${m.dims.join('×')}`);
+  } else if (m.type === 'error'){
+    busy = false;
+    if (!modelReady){ status('Model failed to load', 'err'); showErr('The model failed to load: ' + m.message); }
+  } else if (m.type === 'skip'){
+    busy = false; const fr = pendingFrames.get(m.id); if (fr){ fr.close(); pendingFrames.delete(m.id); }
+  } else if (m.type === 'result'){
+    busy = false;
+    const s = sources[m.src]; if (!s) return;
+    s.boxes = m.boxes; s.W = m.W; s.H = m.H; s.ms = m.ms; s.lastT = performance.now(); s.frames++;
+    const fr = pendingFrames.get(m.id); pendingFrames.delete(m.id);
+    if (fr){ if (s.frame) s.frame.close(); s.frame = fr; }
+    inferMs = inferMs ? inferMs * 0.8 + m.ms * 0.2 : m.ms; ipsCount++;
+    scoreSource(s);
+  }
+}
+async function pump(){
+  if (!modelReady || busy) return;
+  const live = sources.filter(s => s.el.readyState >= 2 && s.el.videoWidth > 0 && APPS.some(k => A[k].src === s.id || viewSrc === s.id));
+  if (!live.length) return;
+  const s = live[rr++ % live.length];
+  busy = true;
+  try {
+    const bitmap = await createImageBitmap(s.el);
+    const show = await createImageBitmap(bitmap);
+    pendingFrames.set(reqId + 1, show);
+    worker.postMessage({type:'detect', id:++reqId, src:s.id, bitmap, conf:CONF, iou:IOU, t:s.el.currentTime}, [bitmap]);
+  } catch (e){ busy = false; }
+}
+setInterval(pump, 15);
+
+/* ---------- scoring: detections -> per-approach density ---------- */
+function scoreSource(s){
+  const now = performance.now() / 1000;
+  for (const k of APPS){
+    const a = A[k];
+    if (a.src !== s.id || !a.poly) continue;
+    const counts = {}; let pcu = 0, n = 0, emg = false, school = false;
+    for (const b of s.boxes){
+      const c = catOf[b[4]]; if (!c) continue;
+      const gx = (b[0] + b[2]) / 2 / s.W, gy = (b[3] - (b[3] - b[1]) * 0.2) / s.H; // a point near where the vehicle meets the road
+      if (!inPoly(gx, gy, a.poly)) continue;
+      counts[c] = (counts[c] || 0) + 1; pcu += PCU[c]; n++;
+      if (c === 'emg' && b[5] > 0.5) emg = true;
+      if (c === 'school') school = true;
+    }
+    const dt = a.lastT ? Math.min(2, now - a.lastT) : 1;
+    a.pcuS = a.seen ? a.pcuS + (pcu - a.pcuS) * (1 - Math.exp(-dt / 1.5)) : pcu;
+    a.lastT = now; a.counts = counts; a.n = n; a.pcu = pcu; a.seen = true; a.school = school;
+    a.emg = emg ? a.emg + 1 : 0;
+    if (a.emg >= 2){ a.emgT = now; if (!pre || pre.app !== k) requestPre(k, 'Emergency vehicle', 'camera'); }
+  }
+}
+
+/* ---------- controller ---------- */
+const ctl = {cur:null, stage:'R', t:0, planned:0, next:null, seq:0, ext:false, gap:0, mode:'STARTING', why:'', redSince:{}, cycleStart:null, lastCycle:null, served:[], endReason:''};
+let pre = null, school = null;
+const now = () => performance.now() / 1000;
+
+function demandKnown(k){ return A[k].src === null || A[k].seen; }
+function hasDemand(k){ return A[k].src === null || A[k].pcuS >= GAP_PCU; }
+function planFor(k){
+  const a = A[k];
+  if (a.src === null) return {g:NO_CAM_G, rule:'no camera, fixed'};
+  const g = Math.round(Math.min(MAX_G, Math.max(MIN_G, STARTUP + HEADWAY * a.pcuS)));
+  return {g, rule:`4 + 2.0 × ${a.pcuS.toFixed(1)}`};
+}
+function chooseNext(){
+  if (pre) return {k:pre.app, why:`${pre.kind} from ${ANAME[pre.app]}: preemption`};
+  const t = now();
+  let starv = null;
+  for (const k of APPS){ if (k === ctl.cur || !hasDemand(k)) continue; const w = t - (ctl.redSince[k] ?? t); if (w >= STARVE && (!starv || w > starv.w)) starv = {k, w}; }
+  if (starv) return {k:starv.k, why:`${ANAME[starv.k]} has waited ${Math.round(starv.w)} s: starvation guard`};
+  if (school && school.app !== ctl.cur) return {k:school.app, why:`school bus on ${ANAME[school.app]}: served next (tier 2)`};
+  const start = ctl.cur ? APPS.indexOf(ctl.cur) : -1;
+  for (let i = 1; i <= 4; i++){ const k = APPS[(start + i + 4) % 4]; if (hasDemand(k)) return {k, why: A[k].src === null ? `${ANAME[k]} has no camera: fixed ${NO_CAM_G} s` : `${ANAME[k]} has ${A[k].pcuS.toFixed(1)} PCU waiting`}; }
+  const k = APPS[(start + 1 + 4) % 4];
+  return {k, why:'no demand anywhere: minimum green in turn'};
+}
+function startGreen(k, why){
+  const t = now();
+  if (ctl.cur === null || APPS.indexOf(k) <= APPS.indexOf(ctl.cur) || ctl.cycleStart === null){
+    if (ctl.cycleStart !== null) ctl.lastCycle = {len: t - ctl.cycleStart, served: ctl.served.slice()};
+    ctl.cycleStart = t; ctl.served = [];
+  }
+  ctl.cur = k; ctl.stage = 'G'; ctl.t = 0; ctl.ext = false; ctl.gap = 0; delete ctl.redSince[k];
+  const p = planFor(k);
+  const isPre = pre && pre.app === k;
+  ctl.planned = isPre ? Infinity : p.g;
+  ctl.mode = isPre ? 'PREEMPT' : 'ADAPTIVE';
+  ctl.why = why;
+  ctl.served.push(k);
+  if (isPre) pre.greenAt = t;
+  publish('phase', {seq:++ctl.seq, approach:k, green_s: isPre ? 'hold' : p.g, pcu: A[k].src === null ? null : +A[k].pcuS.toFixed(1), reason: isPre ? 'preempt' : why.includes('starvation') ? 'starvation' : why.includes('school') ? 'priority_t2' : A[k].src === null ? 'no_camera' : 'density'});
+}
+function endGreen(next, reason){
+  ctl.stage = 'Y'; ctl.t = 0; ctl.next = next; ctl.endReason = reason;
+  ctl.redSince[ctl.cur] = now();
+  publish('clear', {seq:ctl.seq, approach:ctl.cur, after_s:+ctl.tG.toFixed(1), reason});
+}
+function tick(dt){
+  // expire priority requests
+  const t = now();
+  if (pre){
+    const done = pre.source === 'v2x' ? (pre.greenAt && t - pre.greenAt >= V2X_HOLD) : (t - A[pre.app].emgT > 3);
+    if (done){ bus('pre', `${pre.kind} cleared ${ANAME[pre.app]}: releasing preemption`); publish('preempt', {approach:pre.app, state:'released'}); pre = null; if (ctl.stage === 'G'){ ctl.planned = Math.max(ctl.t, MIN_G); ctl.mode = 'ADAPTIVE'; } }
+  }
+  if (school && t > school.until) school = null;
+
+  if (ctl.cur === null){
+    if (APPS.every(demandKnown)){
+      const cams = APPS.filter(k => A[k].src !== null);
+      const k = cams.length ? cams.reduce((a, b) => A[b].pcuS > A[a].pcuS ? b : a) : 'N';
+      startGreen(k, `${ANAME[k]} has the most waiting, ${A[k].pcuS.toFixed(1)} PCU`);
+    }
+    return;
+  }
+  ctl.t += dt;
+  if (ctl.stage === 'Y'){ if (ctl.t >= YEL){ ctl.stage = 'AR'; ctl.t = 0; } return; }
+  if (ctl.stage === 'AR'){ if (ctl.t >= ALLR){ const c = pre ? {k:pre.app, why:`${pre.kind} from ${ANAME[pre.app]}: preemption`} : chooseNext(); startGreen(c.k, c.why); } return; }
+
+  ctl.tG = ctl.t;
+  const k = ctl.cur;
+  if (pre){
+    if (pre.app !== k){ if (ctl.t >= PRE_MIN) endGreen(pre.app, 'preempt'); }
+    else { ctl.mode = 'PREEMPT'; ctl.planned = Infinity; }
+    return;
+  }
+  if (ctl.t < MIN_G) return;
+  const others = APPS.some(o => o !== k && hasDemand(o));
+  if (A[k].src !== null && A[k].pcuS < GAP_PCU && others){ ctl.gap += dt; if (ctl.gap >= GAP_S){ endGreen(null, 'zone empty'); return; } } else ctl.gap = 0;
+  if (ctl.t >= ctl.planned){
+    if ((A[k].school || (school && school.app === k)) && !ctl.ext){ ctl.ext = true; ctl.planned += SCHOOL_EXT; bus('info', `school bus on ${ANAME[k]}: green held +${SCHOOL_EXT} s (tier 2)`); publish('extend', {seq:ctl.seq, approach:k, add_s:SCHOOL_EXT, reason:'priority_t2'}); if (school && school.app === k) school = null; return; }
+    endGreen(null, 'planned time used');
+  }
+}
+let lastTick = performance.now();
+setInterval(() => { const t = performance.now(); const dt = Math.min(0.5, (t - lastTick) / 1000); lastTick = t; if (modelReady || ctl.cur) tick(dt); }, 100);
+
+function requestPre(k, kind, source){
+  pre = {app:k, kind, source, t0:now(), greenAt:null};
+  bus('pre', `${source === 'v2x' ? 'V2X alert' : 'camera detection'}: ${kind.toLowerCase()} approaching from ${ANAME[k]}`);
+  publish('preempt', {approach:k, vehicle:kind.toLowerCase().replace(/ /g,'_'), source, state:'requested'});
+  if (ctl.cur === k && ctl.stage === 'G'){ pre.greenAt = now(); ctl.mode = 'PREEMPT'; ctl.planned = Infinity; ctl.why = `${kind} from ${ANAME[k]}: already green, so the green is held`; }
+}
+
+/* ---------- MQTT-style bus log ---------- */
+const busEl = $('bus');
+function stamp(){ const d = new Date(); return d.toTimeString().slice(0,8) + '.' + String(d.getMilliseconds()).padStart(3,'0').slice(0,1); }
+function bus(kind, text){
+  const li = document.createElement('li'); li.className = kind;
+  li.innerHTML = `<time>${stamp()}</time>`; li.appendChild(document.createTextNode(text));
+  busEl.prepend(li); while (busEl.children.length > 80) busEl.lastChild.remove();
+}
+function publish(topic, payload){
+  bus(topic === 'preempt' ? 'pre' : 'pub', `PUB signalsense/jn-01/${topic} ${JSON.stringify(payload)}`);
+  if (payload.seq) setTimeout(() => bus('ack', `SUB signalsense/jn-01/ack {"seq":${payload.seq},"ok":true,"interlock":"pass"}`), 40 + Math.random() * 30);
+}
+
+/* ---------- UI: cameras and feeds ---------- */
+function renderTabs(){
+  const el = $('camtabs'); if (!el) return;
+  el.innerHTML = sources.map(s => `<button data-s="${s.id}" class="${s.id === viewSrc ? 'on' : ''}">${s.name.split(' · ')[0]}</button>`).join('');
+}
+$('vmode').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; viewMode = b.dataset.m; for (const x of $('vmode').children) x.classList.toggle('on', x === b); });
+$('camtabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b){ viewSrc = +b.dataset.s; renderTabs(); $('camTitle').textContent = sources[viewSrc].name; } });
+
+function renderFeeds(){
+  const el = $('feeds'); if (!el) return;
+  el.innerHTML = APPS.map(k => {
+    const a = A[k];
+    const opts = [`<option value="none"${a.src === null ? ' selected' : ''}>No camera (fixed ${NO_CAM_G} s)</option>`]
+      .concat(sources.map(s => `<option value="${s.id}"${a.src === s.id ? ' selected' : ''}>${s.name}</option>`))
+      .concat(['<option value="upload">Upload a video…</option>', '<option value="webcam">Use a webcam…</option>']).join('');
+    return `<div class="feed" style="--c:${ACOL[k]}">
+      <div class="hd"><span class="nm"><span class="sw"></span>${ANAME[k]}</span><span class="lamp" id="lamp${k}" style="font-family:var(--mono);font-size:11px"></span></div>
+      <div class="pcu" id="pcu${k}">–<small>PCU</small></div>
+      <div class="cnt" id="cnt${k}">${a.src === null ? 'no camera on this approach' : 'waiting for model'}</div>
+      <select data-a="${k}" aria-label="${ANAME[k]} camera">${opts}</select>
+      <div class="row"><button class="btn sm" data-zone="${k}" ${a.src === null ? 'disabled' : ''}>Draw zone</button></div>
+    </div>`;
+  }).join('');
+}
+let pendingFor = null;
+$('feeds').addEventListener('change', async e => {
+  const sel = e.target.closest('select'); if (!sel) return;
+  const k = sel.dataset.a, v = sel.value;
+  if (v === 'none'){ A[k].src = null; A[k].poly = null; A[k].seen = false; renderFeeds(); return; }
+  if (v === 'upload'){ pendingFor = k; $('videoFile').value = ''; $('videoFile').click(); renderFeeds(); return; }
+  if (v === 'webcam'){
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({video:{width:1280, height:720}});
+      const vid = makeVideo(null); vid.srcObject = stream; vid.play().catch(() => {});
+      const s = addSource(`CAM-0${sources.length + 1} · Webcam`, vid, 'webcam');
+      assign(k, s.id, [[0.05,0.35],[0.95,0.35],[0.95,0.98],[0.05,0.98]]);
+    } catch (err){ bus('info', `webcam unavailable here (${err.name}). Open the GitHub Pages link to use a camera, or upload a video.`); renderFeeds(); }
+    return;
+  }
+  const id = +v; assign(k, id, A[k].poly && A[k].src === id ? A[k].poly : [[0.05,0.35],[0.95,0.35],[0.95,0.98],[0.05,0.98]]);
+});
+function assign(k, id, poly){
+  A[k].src = id; A[k].poly = poly; A[k].seen = false; A[k].pcuS = 0;
+  viewSrc = id; renderTabs(); renderFeeds(); $('camTitle').textContent = sources[id].name;
+  bus('info', `${ANAME[k]} approach now uses ${sources[id].name}. Draw its zone around the lanes that queue for this signal.`);
+}
+$('videoFile').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f || !pendingFor) return;
+  const vid = makeVideo(URL.createObjectURL(f));
+  const s = addSource(`CAM-0${sources.length + 1} · ${f.name.slice(0, 22)}`, vid, 'file');
+  assign(pendingFor, s.id, [[0.05,0.35],[0.95,0.35],[0.95,0.98],[0.05,0.98]]);
+  pendingFor = null;
+});
+
+/* zone drawing */
+let drawing = null;
+$('feeds').addEventListener('click', e => {
+  const b = e.target.closest('button[data-zone]'); if (!b) return;
+  const k = b.dataset.zone; if (A[k].src === null) return;
+  viewSrc = A[k].src; renderTabs(); $('camTitle').textContent = sources[viewSrc].name;
+  drawing = {k, pts:[]};
+  $('drawText').textContent = `${ANAME[k]}: click the corners of the area where vehicles queue for this signal, then save.`;
+  $('drawbar').classList.add('on'); $('view').classList.add('drawing');
+});
+function endDraw(save){
+  if (save && drawing && drawing.pts.length >= 3){ A[drawing.k].poly = drawing.pts; A[drawing.k].seen = false; bus('info', `${ANAME[drawing.k]} zone saved (${drawing.pts.length} points)`); }
+  drawing = null; $('drawbar').classList.remove('on'); $('view').classList.remove('drawing');
+}
+$('drawDone').onclick = () => endDraw(true);
+$('drawCancel').onclick = () => endDraw(false);
+window.addEventListener('keydown', e => { if (!drawing) return; if (e.key === 'Enter') endDraw(true); if (e.key === 'Escape') endDraw(false); });
+
+/* custom model */
+$('modelBtn').onclick = () => { $('modelFile').value = ''; $('modelFile').click(); };
+$('modelFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const buf = await f.arrayBuffer();
+  // Ultralytics writes class names and input size into the ONNX metadata as plain text.
+  const txt = new TextDecoder('latin1').decode(new Uint8Array(buf, 0, Math.min(buf.byteLength, 4e6)).slice(0)) + new TextDecoder('latin1').decode(new Uint8Array(buf, Math.max(0, buf.byteLength - 4e6)));
+  const nm = txt.match(/\{0: '[^}]*\}/);
+  let parsed = null;
+  if (nm){ parsed = []; for (const m of nm[0].matchAll(/(\d+): '([^']*)'/g)) parsed[+m[1]] = m[2]; }
+  const isz = txt.match(/imgsz[^\[]{0,8}\[(\d+), ?(\d+)\]/);
+  names = parsed && parsed.length ? parsed : COCO; catOf = names.map(category);
+  modelName = f.name.replace(/\.onnx$/i, '');
+  const mapped = names.map((n, i) => catOf[i] ? `${n}→${CATLBL[catOf[i]]}` : null).filter(Boolean);
+  bus('info', `custom model ${f.name}: ${names.length} classes${parsed ? '' : ' (names not found in file, using COCO)'}; counted: ${mapped.join(', ') || 'none recognised'}`);
+  for (const s of sources) s.boxes = [];
+  startWorker(buf, isz ? +isz[1] : 640);
+});
+
+/* priority buttons */
+let fromA = 'W';
+$('from').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; fromA = b.dataset.a; for (const x of $('from').children) x.classList.toggle('on', x === b); });
+$('ambBtn').onclick = () => requestPre(fromA, 'Ambulance', 'v2x');
+$('fireBtn').onclick = () => requestPre(fromA, 'Fire truck', 'v2x');
+$('busBtn').onclick = () => {
+  school = {app:fromA, until:now() + 60};
+  bus('info', `V2X: school bus approaching from ${ANAME[fromA]} (tier 2: next in line, or +${SCHOOL_EXT} s if already green)`);
+  publish('priority', {approach:fromA, vehicle:'school_bus', tier:2});
+};
+
+/* ---------- drawing the camera view ---------- */
+const view = $('view'), vctx = view.getContext('2d');
+function fitCanvas(cv){
+  const dpr = Math.min(2, window.devicePixelRatio || 1), r = cv.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  return {dpr, w:r.width, h:r.height};
+}
+let lay = {x:0, y:0, w:1, h:1};
+view.addEventListener('click', e => {
+  if (!drawing) return;
+  const r = view.getBoundingClientRect();
+  const x = (e.clientX - r.left - lay.x) / lay.w, y = (e.clientY - r.top - lay.y) / lay.h;
+  if (x < -0.02 || y < -0.02 || x > 1.02 || y > 1.02) return;
+  drawing.pts.push([Math.min(1, Math.max(0, x)), Math.min(1, Math.max(0, y))]);
+});
+function zoneLabel(c, k, x, y){
+  const a = A[k];
+  const txt = `${k} · ${a.seen ? a.pcuS.toFixed(1) + ' PCU' : '…'}`;
+  c.font = '600 12px "IBM Plex Mono", monospace';
+  const w = c.measureText(txt).width + 12;
+  const st = sigState(k);
+  c.fillStyle = 'rgba(12,15,17,.82)'; c.fillRect(x, y, w + 14, 20);
+  c.fillStyle = ACOL[k]; c.fillRect(x, y, 4, 20);
+  c.fillStyle = SIGC[st]; c.beginPath(); c.arc(x + 12, y + 10, 4, 0, 7); c.fill();
+  c.fillStyle = '#F2EDE2'; c.textBaseline = 'middle'; c.fillText(txt, x + 20, y + 10.5);
+}
+function drawView(){
+  const f = fitCanvas(view), c = vctx;
+  c.setTransform(f.dpr, 0, 0, f.dpr, 0, 0);
+  c.fillStyle = '#101315'; c.fillRect(0, 0, f.w, f.h);
+  const s = sources[viewSrc], v = s.el;
+  const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
+  const sc = Math.min(f.w / vw, f.h / vh);
+  lay = {x:(f.w - vw * sc) / 2, y:(f.h - vh * sc) / 2, w:vw * sc, h:vh * sc};
+  const useFrame = viewMode === 'model' && s.frame && performance.now() - s.lastT < 1500;
+  if (useFrame) c.drawImage(s.frame, lay.x, lay.y, lay.w, lay.h);
+  else if (v.readyState >= 2) c.drawImage(v, lay.x, lay.y, lay.w, lay.h);
+  else { c.fillStyle = '#8C949A'; c.font = '13px "IBM Plex Mono", monospace'; c.textAlign = 'center'; c.fillText('connecting to camera…', f.w / 2, f.h / 2); c.textAlign = 'left'; }
+  // zones
+  for (const k of APPS){
+    const a = A[k]; if (a.src !== s.id || !a.poly || (drawing && drawing.k === k)) continue;
+    c.beginPath(); a.poly.forEach(([x, y], i) => { const X = lay.x + x * lay.w, Y = lay.y + y * lay.h; i ? c.lineTo(X, Y) : c.moveTo(X, Y); }); c.closePath();
+    c.fillStyle = ACOL[k] + '26'; c.fill(); c.setLineDash([6, 4]); c.strokeStyle = ACOL[k]; c.lineWidth = 2; c.stroke(); c.setLineDash([]);
+  }
+  // detections
+  const fresh = performance.now() - s.lastT < 1500;
+  if (fresh && s.W){
+    const kx = lay.w / s.W, ky = lay.h / s.H;
+    for (const b of s.boxes){
+      const cat = catOf[b[4]]; if (!cat) continue;
+      const gx = (b[0] + b[2]) / 2 / s.W, gy = (b[3] - (b[3] - b[1]) * 0.2) / s.H;
+      let zk = null; for (const k of APPS){ const a = A[k]; if (a.src === s.id && a.poly && inPoly(gx, gy, a.poly)){ zk = k; break; } }
+      const X = lay.x + b[0] * kx, Y = lay.y + b[1] * ky, W = (b[2] - b[0]) * kx, H = (b[3] - b[1]) * ky;
+      const col = cat === 'emg' ? '#FF3B30' : zk ? ACOL[zk] : 'rgba(235,230,220,.55)';
+      c.strokeStyle = col; c.lineWidth = zk || cat === 'emg' ? 2 : 1; c.strokeRect(X, Y, W, H);
+      if (zk || cat === 'emg' || lay.w > 700){
+        const t = `${names[b[4]]} ${b[5].toFixed(2)}`;
+        c.font = '500 10.5px "IBM Plex Mono", monospace'; const tw = c.measureText(t).width + 6;
+        c.fillStyle = zk || cat === 'emg' ? col : 'rgba(20,24,27,.7)'; c.fillRect(X, Y - 14, tw, 14);
+        c.fillStyle = zk && zk !== 'N' ? '#14181B' : '#fff'; if (cat === 'emg') c.fillStyle = '#fff'; c.textBaseline = 'middle'; c.fillText(t, X + 3, Y - 6.5);
+      }
+    }
+  }
+  // zone labels on top
+  for (const k of APPS){
+    const a = A[k]; if (a.src !== s.id || !a.poly) continue;
+    let cx = 0, cy = 0; a.poly.forEach(([x, y]) => { cx += x; cy += y; }); cx /= a.poly.length; cy /= a.poly.length;
+    const X = Math.min(f.w - 130, Math.max(6, lay.x + cx * lay.w - 50)), Y = Math.min(f.h - 26, Math.max(26, lay.y + cy * lay.h - 10));
+    zoneLabel(c, k, X, Y);
+  }
+  // zone being drawn
+  if (drawing){
+    c.strokeStyle = ACOL[drawing.k]; c.fillStyle = ACOL[drawing.k] + '33'; c.lineWidth = 2;
+    if (drawing.pts.length){ c.beginPath(); drawing.pts.forEach(([x, y], i) => { const X = lay.x + x * lay.w, Y = lay.y + y * lay.h; i ? c.lineTo(X, Y) : c.moveTo(X, Y); }); if (drawing.pts.length > 2){ c.closePath(); c.fill(); } c.stroke(); }
+    for (const [x, y] of drawing.pts){ c.fillStyle = '#fff'; c.beginPath(); c.arc(lay.x + x * lay.w, lay.y + y * lay.h, 4, 0, 7); c.fill(); }
+  }
+  // HUD strip
+  c.fillStyle = 'rgba(10,12,14,.72)'; c.fillRect(0, 0, f.w, 22);
+  c.font = '11px "IBM Plex Mono", monospace'; c.fillStyle = '#E9E3D6'; c.textBaseline = 'middle'; c.textAlign = 'left';
+  const n = fresh ? s.boxes.filter(b => catOf[b[4]]).length : 0;
+  c.fillText(`${s.name.toUpperCase()}${s.kind === 'file' && s.id === 0 ? ' · recorded, loops every 15 s' : ''}`, 8, 11.5);
+  c.textAlign = 'right';
+  c.fillText(modelReady ? `${modelName} · ${Math.round(s.ms || inferMs)} ms · ${n} vehicles${useFrame ? ' · analysed frame' : ''}` : 'model loading…', f.w - 8, 11.5);
+  c.textAlign = 'left';
+}
+
+/* ---------- junction schematic ---------- */
+function sigState(k){
+  if (ctl.cur !== k) return 'R';
+  return ctl.stage === 'G' ? 'G' : ctl.stage === 'Y' ? 'Y' : 'R';
+}
+const jc = $('junction').getContext('2d');
+function drawJunction(){
+  const c = jc, S = 170, m = S / 2, rw = 34;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  if ($('junction').width !== S * dpr){ $('junction').width = S * dpr; $('junction').height = S * dpr; }
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.fillStyle = '#1A1F22'; c.fillRect(0, 0, S, S);
+  c.fillStyle = '#343B40'; c.fillRect(m - rw, 0, rw * 2, S); c.fillRect(0, m - rw, S, rw * 2);
+  c.strokeStyle = 'rgba(230,225,215,.35)'; c.setLineDash([5, 5]); c.lineWidth = 1;
+  c.beginPath(); c.moveTo(m, 0); c.lineTo(m, m - rw); c.moveTo(m, m + rw); c.lineTo(m, S); c.moveTo(0, m); c.lineTo(m - rw, m); c.moveTo(m + rw, m); c.lineTo(S, m); c.stroke(); c.setLineDash([]);
+  // keep-left: inbound on the left of each approach as seen by its driver
+  const heads = {N:[m + rw / 2, m - rw - 7], S:[m - rw / 2, m + rw + 7], W:[m - rw - 7, m - rw / 2], E:[m + rw + 7, m + rw / 2]};
+  const bars = {N:[m, m - rw, m + rw, m - rw], S:[m - rw, m + rw, m, m + rw], W:[m - rw, m - rw, m - rw, m], E:[m + rw, m, m + rw, m + rw]};
+  for (const k of APPS){
+    const st = sigState(k), col = SIGC[st];
+    const [x1, y1, x2, y2] = bars[k]; c.strokeStyle = col; c.lineWidth = 3; c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+    const [hx, hy] = heads[k];
+    c.shadowColor = col; c.shadowBlur = st === 'G' ? 12 : 6; c.fillStyle = col; c.beginPath(); c.arc(hx, hy, 6, 0, 7); c.fill(); c.shadowBlur = 0;
+    c.font = '600 11px "IBM Plex Mono", monospace'; c.fillStyle = ACOL[k]; c.textAlign = 'center'; c.textBaseline = 'middle';
+    const lp = {N:[m + rw / 2, 10], S:[m - rw / 2, S - 10], W:[10, m - rw / 2], E:[S - 10, m + rw / 2]}[k];
+    c.fillText(k, lp[0], lp[1]);
+  }
+  if (pre){
+    const p = {N:[m + rw / 2, 24], S:[m - rw / 2, S - 24], W:[24, m - rw / 2], E:[S - 24, m + rw / 2]}[pre.app];
+    const r = 8 + 3 * Math.sin(performance.now() / 120);
+    c.strokeStyle = '#FF3B30'; c.lineWidth = 2; c.beginPath(); c.arc(p[0], p[1], r, 0, 7); c.stroke();
+  }
+  c.textAlign = 'left';
+}
+
+/* ---------- chart ---------- */
+const hist = {t:[], N:[], E:[], S:[], W:[], g:[]};
+setInterval(() => {
+  if (!modelReady) return;
+  hist.t.push(now()); for (const k of APPS) hist[k].push(A[k].src === null ? null : A[k].pcuS);
+  hist.g.push(ctl.stage === 'G' ? ctl.cur : null);
+  if (hist.t.length > 120) for (const key in hist) hist[key].shift();
+}, 1000);
+function drawChart(){
+  const cv = $('chart'), f = fitCanvas(cv), c = cv.getContext('2d');
+  c.setTransform(f.dpr, 0, 0, f.dpr, 0, 0); c.clearRect(0, 0, f.w, f.h);
+  const L = 46, R = 64, T = 6, B = 30, pw = f.w - L - R, ph = f.h - T - B, n = 120;
+  let mx = 4; for (const k of APPS) for (const v of hist[k]) if (v != null && v > mx) mx = v;
+  const top = Math.ceil(mx / 2) * 2;
+  c.font = '10.5px "IBM Plex Mono", monospace'; c.textBaseline = 'middle';
+  for (let i = 0; i <= 2; i++){ const y = T + ph - ph * i / 2; c.strokeStyle = '#DDD5C5'; c.lineWidth = 1; c.beginPath(); c.moveTo(L, y); c.lineTo(L + pw, y); c.stroke(); c.fillStyle = '#6C665B'; c.textAlign = 'right'; c.fillText(String(top * i / 2), L - 6, y); }
+  const X = i => L + pw * (n - hist.t.length + i) / (n - 1), Y = v => T + ph - ph * v / top;
+  // which approach had green
+  const gy = T + ph + 8;
+  for (let i = 0; i < hist.g.length; i++){ const g = hist.g[i]; if (!g) continue; c.fillStyle = ACOL[g]; c.fillRect(X(i), gy, Math.max(1, pw / (n - 1)) + 0.5, 6); }
+  c.fillStyle = '#6C665B'; c.textAlign = 'right'; c.fillText('green', L - 6, gy + 3);
+  c.textAlign = 'left'; c.fillText('−2 min', L, f.h - 6); c.textAlign = 'right'; c.fillText('now', L + pw, f.h - 6);
+  const ends = [];
+  for (const k of APPS){
+    const arr = hist[k]; if (!arr.some(v => v != null)) continue;
+    c.beginPath(); let on = false;
+    arr.forEach((v, i) => { if (v == null){ on = false; return; } on ? c.lineTo(X(i), Y(v)) : c.moveTo(X(i), Y(v)); on = true; });
+    c.strokeStyle = ACOL[k]; c.lineWidth = 2; c.lineJoin = 'round'; c.stroke();
+    const last = arr[arr.length - 1]; if (last != null) ends.push({k, y:Y(last), v:last});
+  }
+  ends.sort((a, b) => a.y - b.y); for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 12) ends[i].y = ends[i - 1].y + 12;
+  c.textAlign = 'left'; c.font = '600 10.5px "IBM Plex Mono", monospace';
+  for (const e of ends){ c.fillStyle = ACOL[e.k]; c.beginPath(); c.arc(L + pw, Y(e.v), 3, 0, 7); c.fill(); c.fillStyle = '#1B2535'; c.fillText(`${e.k} ${e.v.toFixed(1)}`, L + pw + 8, e.y); }
+}
+$('keys').innerHTML = APPS.map(k => `<span style="--c:${ACOL[k]}"><i></i>${ANAME[k]}</span>`).join('') + '<span style="color:var(--muted)">bar under the chart: which approach had green</span>';
+
+/* ---------- DOM refresh ---------- */
+function countsText(cn){ const o = []; for (const c of ['emg','school','bus','truck','car','auto','2w','cycle']) if (cn[c]) o.push(`${cn[c]} ${CATLBL[c]}`); return o.join(', '); }
+function hud(){
+  const t = now();
+  // pipeline
+  const live = sources.filter(s => s.el.readyState >= 2);
+  $('p1').textContent = `${live.length} feed${live.length === 1 ? '' : 's'} · ${live.map(s => s.el.videoWidth + '×' + s.el.videoHeight).join(', ') || 'connecting'}`;
+  const totalV = APPS.reduce((n, k) => n + (A[k].src !== null ? A[k].n : 0), 0);
+  $('p2').textContent = modelReady ? `${Math.round(inferMs)} ms/frame · ${ips.toFixed(1)} fps · ${totalV} in zones` : 'loading model…';
+  const nx = ctl.cur ? chooseNext() : null;
+  $('p3').textContent = !ctl.cur ? 'waiting for scores' : pre ? `${ANAME[pre.app]} green for the ${pre.kind.toLowerCase()}` : `${ANAME[ctl.cur]} ${ctl.planned} s · next ${ANAME[nx.k]}`;
+  $('p4').textContent = ctl.cur ? `seq ${ctl.seq} · ${ctl.stage === 'G' ? ANAME[ctl.cur] + ' green' : ctl.stage === 'Y' ? 'yellow' : 'all red'} · ack ok` : '–';
+  $('p5').textContent = pre ? `preempt: ${pre.kind.toLowerCase()} from ${ANAME[pre.app]}` : school ? `school bus from ${ANAME[school.app]}` : 'V2X listening · no alerts';
+
+  for (const k of APPS){
+    const a = A[k];
+    const pe = $('pcu' + k), ce = $('cnt' + k), le = $('lamp' + k); if (!pe) continue;
+    pe.innerHTML = a.src === null ? '–<small>no data</small>' : a.seen ? `${a.pcuS.toFixed(1)}<small>PCU</small>` : '…<small>PCU</small>';
+    ce.textContent = a.src === null ? 'no camera on this approach' : !a.seen ? 'waiting for model' : (countsText(a.counts) || 'zone clear');
+    const st = sigState(k); le.innerHTML = `<span style="color:${st === 'G' ? 'var(--good)' : st === 'Y' ? '#B48A00' : 'var(--coral)'}">● ${st === 'G' ? 'green' : st === 'Y' ? 'yellow' : 'red'}</span>`;
+  }
+
+  // controller
+  const md = $('mode');
+  md.className = 'pill ' + (ctl.cur ? ctl.mode : 'STARTING'); md.textContent = ctl.cur ? ctl.mode : 'STARTING';
+  if (ctl.cur){
+    $('phaseLbl').textContent = `${ANAME[ctl.cur]} approach · ${ctl.stage === 'G' ? 'green' : ctl.stage === 'Y' ? 'yellow' : 'all red'}`;
+    if (ctl.stage === 'G') $('count').innerHTML = ctl.planned === Infinity ? `hold<small>for the ${pre ? pre.kind.toLowerCase() : 'priority vehicle'}</small>` : `${Math.max(0, Math.ceil(ctl.planned - ctl.t))}<small>s of ${ctl.planned} s green left</small>`;
+    else $('count').innerHTML = `${Math.max(0, Math.ceil((ctl.stage === 'Y' ? YEL : ALLR) - ctl.t))}<small>s ${ctl.stage === 'Y' ? 'yellow' : 'all red'} · ${ctl.endReason}</small>`;
+    $('why').innerHTML = `<b>Why:</b> ${ctl.why}.`;
+  }
+  $('plan').innerHTML = APPS.map(k => {
+    const a = A[k], p = planFor(k);
+    const red = ctl.cur === k && ctl.stage === 'G' ? 'green now' : ctl.redSince[k] ? Math.round(t - ctl.redSince[k]) + ' s' : '–';
+    const cls = pre && pre.app === k ? 'pre' : ctl.cur === k && ctl.stage === 'G' ? 'on' : '';
+    return `<tr class="${cls}"><td><span class="sw" style="--c:${ACOL[k]};margin-right:6px;vertical-align:-1px"></span>${ANAME[k]}</td>
+      <td>${a.src === null ? 'no camera' : a.seen ? a.n : '…'}</td><td>${a.src === null ? '–' : a.seen ? a.pcuS.toFixed(1) : '…'}</td>
+      <td>${pre && pre.app === k ? 'preempt' : !hasDemand(k) && a.seen ? 'skip, empty' : p.g + ' s'}</td><td>${red}</td></tr>`;
+  }).join('');
+  if (ctl.lastCycle){
+    $('cyc').textContent = Math.round(ctl.lastCycle.len) + ' s';
+    const skipped = APPS.filter(k => !ctl.lastCycle.served.includes(k));
+    $('cycNote').textContent = `served ${ctl.lastCycle.served.join(' → ')}` + (skipped.length ? `, skipped empty ${skipped.join(', ')}` : '');
+  }
+  $('corr').innerHTML = pre ? `<b>${pre.kind}</b> from ${ANAME[pre.app]} via ${pre.source === 'v2x' ? 'V2X' : 'camera'} · ${ctl.cur === pre.app && ctl.stage === 'G' ? 'green held for it' : 'clearing the junction: yellow then all-red first'}` : school ? `<b>School bus</b> from ${ANAME[school.app]} · ${ctl.cur === school.app && ctl.stage === 'G' ? `green extended if needed` : 'served next'}` : 'No priority vehicle in range.';
+  const tt = performance.now(); if (tt - ipsT > 2000){ ips = ipsCount / ((tt - ipsT) / 1000); ipsCount = 0; ipsT = tt; }
+}
+
+function frame(){ drawView(); drawJunction(); requestAnimationFrame(frame); }
+uiReady = true; renderTabs(); renderFeeds();
+setInterval(() => { hud(); drawChart(); }, 250);
+requestAnimationFrame(frame);
+bus('info', 'SignalSense edge node started · junction JN-01 · 4 approaches, 3 on CAM-01, East has no camera');
+startWorker();
+})();
+</script>
+</body>
+</html>
